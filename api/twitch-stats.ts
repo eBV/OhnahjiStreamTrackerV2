@@ -131,8 +131,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(404).json({ error: `Twitch user "${username}" not found` });
     }
 
-    // Fetch followers, live stream, VODs, clips, and schedule in parallel
-    const [followersRes, streamsRes, videosRes, clipsRes, scheduleRes] = await Promise.all([
+    // Fetch followers, live stream, VODs, clips, recent clips, and schedule in parallel
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const [followersRes, streamsRes, videosRes, clipsRes, recentClipsRes, scheduleRes] = await Promise.all([
       fetch(
         `https://api.twitch.tv/helix/channels/followers?broadcaster_id=${user.id}`,
         { headers }
@@ -150,16 +151,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         { headers }
       ),
       fetch(
+        `https://api.twitch.tv/helix/clips?broadcaster_id=${user.id}&first=10&started_at=${thirtyDaysAgo}`,
+        { headers }
+      ),
+      fetch(
         `https://api.twitch.tv/helix/schedule?broadcaster_id=${user.id}&first=8`,
         { headers }
       ),
     ]);
 
-    const [followersData, streamsData, videosData, clipsData] = await Promise.all([
+    const [followersData, streamsData, videosData, clipsData, recentClipsData] = await Promise.all([
       followersRes.json() as Promise<{ total: number }>,
       streamsRes.json() as Promise<{ data: TwitchStream[] }>,
       videosRes.json() as Promise<{ data: TwitchVideo[] }>,
       clipsRes.json() as Promise<{ data: TwitchClip[] }>,
+      recentClipsRes.json() as Promise<{ data: TwitchClip[] }>,
     ]);
 
     // Schedule returns 404 if not configured — handle gracefully
@@ -171,12 +177,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const liveStream = streamsData.data?.[0] ?? null;
     const videos = videosData.data ?? [];
     const clips = clipsData.data ?? [];
+    const recentClipsRaw = recentClipsData.data ?? [];
     const scheduleSegments = scheduleData.data?.segments ?? [];
 
     // Batch-resolve game names for VODs + clips
     const allGameIds = [
       ...videos.map((v) => v.game_id),
       ...clips.map((c) => c.game_id),
+      ...recentClipsRaw.map((c) => c.game_id),
     ];
     const uniqueGameIds = [...new Set(allGameIds.filter(Boolean))];
     let gameMap: Record<string, string> = {};
@@ -214,6 +222,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       createdAt: c.created_at,
     }));
 
+    const recentClips = recentClipsRaw
+      .map((c) => ({
+        id: c.id,
+        title: c.title,
+        viewCount: c.view_count,
+        thumbnailUrl: c.thumbnail_url,
+        gameName: gameMap[c.game_id] ?? undefined,
+        duration: c.duration,
+        url: c.url,
+        createdAt: c.created_at,
+      }))
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
     const schedule = (scheduleSegments ?? [])
       .filter((s) => !s.canceled_until)
       .map((s) => ({
@@ -238,6 +259,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         : null,
       recentStreams,
       topClips,
+      recentClips,
       schedule,
       user: {
         displayName: user.display_name,

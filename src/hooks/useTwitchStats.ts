@@ -41,6 +41,7 @@ export interface TwitchStats {
   } | null;
   recentStreams: TwitchStream[];
   topClips: TwitchClip[];
+  recentClips: TwitchClip[];
   schedule: TwitchScheduleSegment[];
   user: {
     displayName: string;

@@ -6,6 +6,7 @@ import ChannelHeader from "@/components/dashboard/ChannelHeader";
 import StatCard from "@/components/dashboard/StatCard";
 import StreamChart from "@/components/dashboard/StreamChart";
 import RecentStreams from "@/components/dashboard/RecentStreams";
+import RecentClips from "@/components/dashboard/RecentClips";
 import TopClips from "@/components/dashboard/TopClips";
 import StreamSchedule from "@/components/dashboard/StreamSchedule";
 import MilestoneTracker from "@/components/dashboard/MilestoneTracker";
@@ -357,6 +358,11 @@ const Index = () => {
           </div>
           <div className="md:col-span-4 lg:col-span-2">
             <TopClips clips={mergedData?.topClips ?? []} isLoading={isLoading} onClipClick={setSelectedClip} />
+          </div>
+
+          {/* ── Recent Clips (newest first) ───────────────────────────────── */}
+          <div className="md:col-span-4 lg:col-span-6">
+            <RecentClips clips={mergedData?.recentClips ?? []} isLoading={isLoading} onClipClick={setSelectedClip} />
           </div>
 
           {/* ── Recent Streams + Schedule + Milestones ────────────────────── */}
