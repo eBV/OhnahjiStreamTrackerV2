@@ -65,10 +65,26 @@ interface TwitchGame {
   name: string;
 }
 
+// In-memory Twitch app-OAuth token cache. Serverless functions reuse module
+// scope across warm invocations, so a fresh token is NOT fetched per
+// request. App tokens live ~60 days; we refresh 5 minutes before expiry.
+interface CachedToken {
+  token: string;
+  expiresAt: number; // epoch ms
+}
+
+const tokenCache = new Map<string, CachedToken>();
+const TOKEN_REFRESH_SKEW_MS = 5 * 60 * 1000;
+
 async function getAccessToken(
   clientId: string,
   clientSecret: string
 ): Promise<string> {
+  const cached = tokenCache.get(clientId);
+  if (cached && Date.now() < cached.expiresAt - TOKEN_REFRESH_SKEW_MS) {
+    return cached.token;
+  }
+
   const res = await fetch("https://id.twitch.tv/oauth2/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -80,6 +96,10 @@ async function getAccessToken(
   });
   if (!res.ok) throw new Error(`Token request failed: ${res.status}`);
   const data = (await res.json()) as TwitchTokenResponse;
+  tokenCache.set(clientId, {
+    token: data.access_token,
+    expiresAt: Date.now() + data.expires_in * 1000,
+  });
   return data.access_token;
 }
 
@@ -93,8 +113,15 @@ function formatDuration(duration: string): string {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  // Tightened CORS: only the deployed frontend may call this API.
+  // Set FRONTEND_URL in Vercel environment variables to the production
+  // frontend origin (e.g. https://your-app.vercel.app). Falls back to the
+  // Vite dev server origin for local development.
+  const frontendUrl = process.env.FRONTEND_URL ?? "http://localhost:5173";
+  res.setHeader("Access-Control-Allow-Origin", frontendUrl);
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") {
     return res.status(200).end();
